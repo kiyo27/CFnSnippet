@@ -1,0 +1,199 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  AWS CloudFormation
+
+Parameters:
+  VpcId:
+    Type: String
+
+  SecurityGroups:
+    Type: String
+  
+  SubnetIds:
+    Type: String
+
+  TaskDefinition:
+    Type: String
+
+  HttpIntegrationUri:
+    Type: String
+
+
+Resources:
+
+## ecs service
+  ECSService: 
+    Type: "AWS::ECS::Service"
+    DependsOn:
+      - NetworkLoadBalancer
+    Properties: 
+      Cluster: "DevCluster"
+      CapacityProviderStrategy: 
+        - CapacityProvider: FARGATE
+          Base: 0
+          Weight: 1
+      TaskDefinition: !Sub ${TaskDefinition}
+      ServiceName: cfn-ecs-svc
+      SchedulingStrategy: REPLICA
+      DesiredCount: 1
+      LoadBalancers: 
+        - ContainerName: http
+          ContainerPort: 80
+          TargetGroupArn: !Ref NlbTargetGroup
+      NetworkConfiguration: 
+        AwsvpcConfiguration: 
+          AssignPublicIp: DISABLED
+          SecurityGroups: !Split [",", !Ref SecurityGroups]
+          Subnets: !Split [",", !Ref SubnetIds]
+      PlatformVersion: "LATEST"
+      DeploymentConfiguration: 
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+        DeploymentCircuitBreaker: 
+          Enable: true
+          Rollback: true
+      DeploymentController: 
+        Type: ECS
+      ServiceConnectConfiguration: 
+        Enabled: false
+      EnableECSManagedTags: true
+
+## nlb
+## https://docs.aws.amazon.com/ja_jp/AWSCloudFormation/latest/UserGuide/aws-resource-elasticloadbalancingv2-loadbalancer.html
+  NetworkLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: nlb-cfn
+      Scheme: internal
+      Subnets: !Split [",", !Ref SubnetIds]
+      SecurityGroups: !Split [",", !Ref SecurityGroups]
+      Type: network
+
+## listner
+## aws elbv2 describe-listeners --listener-arns
+  NlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref NlbTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref NetworkLoadBalancer
+      Port: 80
+      Protocol: TCP
+
+## target group
+## aws elbv2 describe-target-groups
+  NlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: target-group-cfn
+      Port: 80
+      Protocol: TCP
+      VpcId: !Sub ${VpcId}
+      TargetType: ip
+
+## vpc link
+  RestApiVpcLink:
+    Type: AWS::ApiGateway::VpcLink
+    Properties:
+      Name: vpc-link-rest-cfn
+      TargetArns:
+        - !Ref NetworkLoadBalancer
+
+
+## api gateway rest api
+  RestApiApiGateway:
+    Type: "AWS::ApiGateway::RestApi"
+    Properties:
+      Description: "Your first API with Amazon API Gateway made by CloudFormation. This is a sample API"
+      EndpointConfiguration:
+        Types:
+        - "REGIONAL"
+      DisableExecuteApiEndpoint: false
+      Name: "cfn-api-gw-rest-api"
+
+## api gateway resource
+## /api
+## aws apigateway get-resource --rest-api-id xxx --resource-id xxx
+## https://docs.aws.amazon.com/ja_jp/AWSCloudFormation/latest/UserGuide/aws-resource-apigateway-resource.html
+  RestApiApiRoute:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt RestApiApiGateway.RootResourceId
+      PathPart: api
+      RestApiId: !Ref RestApiApiGateway
+
+## /api/{proxy+}
+  RestApiProxy:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref RestApiApiRoute
+      PathPart: "{proxy+}"
+      RestApiId: !Ref RestApiApiGateway
+
+## ANY /api/{proxy+}
+## aws apigateway get-method --rest-api-id xxx --resource-id xxx --http-method ANY
+## https://docs.aws.amazon.com/ja_jp/AWSCloudFormation/latest/UserGuide/aws-resource-apigateway-method.html
+  RestApiProxyMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: ANY
+      RequestParameters:
+        method.request.path.proxy: true
+      Integration:
+        IntegrationHttpMethod: ANY
+        PassthroughBehavior: WHEN_NO_MATCH
+        RequestParameters: { "integration.request.path.proxy": "method.request.path.proxy" }
+        Type: HTTP
+        Uri: !Sub ${HttpIntegrationUri}
+      ResourceId: !Ref RestApiProxy
+      RestApiId: !Ref RestApiApiGateway
+
+## /nlb
+  RestApiVpcRoute:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt RestApiApiGateway.RootResourceId
+      PathPart: nlb
+      RestApiId: !Ref RestApiApiGateway
+
+## GET /nlb
+  RestApiGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: GET
+      Integration:
+        ConnectionType: VPC_LINK
+        ConnectionId: !Ref RestApiVpcLink
+        IntegrationHttpMethod: GET
+        PassthroughBehavior: WHEN_NO_MATCH
+        Type: HTTP_PROXY
+        Uri: !Sub
+          - "http://${DNSName}/{proxy}"
+          - DNSName: !GetAtt NetworkLoadBalancer.DNSName
+      ResourceId: !Ref RestApiVpcRoute
+      RestApiId: !Ref RestApiApiGateway
+
+## deployment
+  RestApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref RestApiApiGateway
+      # StageName: dev
+    DependsOn:
+      - RestApiGetMethod
+      - RestApiProxyMethod
+
+## stage
+## aws apigateway get-stage --rest-api-id xxx --stage-name dev --output yaml
+## https://docs.aws.amazon.com/ja_jp/AWSCloudFormation/latest/UserGuide/aws-resource-apigateway-stage.html
+  RestApiDevStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId: !Ref RestApiDeployment
+      RestApiId: !Ref RestApiApiGateway
+      StageName: dev
