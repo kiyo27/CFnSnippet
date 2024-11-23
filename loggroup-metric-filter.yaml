@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudWatch Logs Metric Filter and Log Group Template'
+
+Parameters:
+  DestinationArn:
+    Type: String
+    Description: "firehose arn"
+
+Resources:
+# 
+# LOG_GROUP_NAME=dev-logroup-metric-filter-logs
+# 
+
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "${AWS::StackName}-logs"
+      RetentionInDays: 14  # ログの保持期間を14日に設定
+
+# 
+# aws logs describe-metric-filters --log-group-name ${LOG_GROUP_NAME}
+# 
+  LogMetricErrorFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref LogGroup # ログループ名を指定
+      FilterPattern: "ERROR" # フィルターパターンを指定 (例: エラーログを検出)
+      MetricTransformations:
+        - MetricValue: "1"
+          DefaultValue: 0
+          MetricNamespace: "CustomNamespace" # メトリクスの名前空間を指定 
+          MetricName: "ErrorCount"
+
+  LogMetricFatalFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref LogGroup # ログループ名を指定
+      FilterPattern: "FATAL" # フィルターパターンを指定 (例: エラーログを検出)
+      MetricTransformations:
+        - MetricValue: "1"
+          DefaultValue: 0
+          MetricNamespace: "CustomNamespace" # メトリクスの名前空間を指定 
+          MetricName: "FatalCount"
+
+# 
+# publish metric data
+# aws cloudwatch put-metric-data --metric-name ErrorCount --namespace CustomNamespace --value 2
+# 
+  ErrorLogAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: ErrorLogMetric
+      MetricName: ErrorCount
+      Namespace: CustomNamespace
+      Period: 60
+      Statistic: Sum
+      Threshold: 1
+      ComparisonOperator: GreaterThanThreshold
+      EvaluationPeriods: 1
+      TreatMissingData: notBreaching
+
+  FatalLogAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: FatalLogMetric
+      MetricName: FatalCount
+      Namespace: CustomNamespace
+      Period: 60
+      Statistic: Sum
+      Threshold: 1
+      ComparisonOperator: GreaterThanThreshold
+      EvaluationPeriods: 1
+      TreatMissingData: notBreaching
+
+# 
+# aws logs describe-subscription-filters --log-group-name ${LOG_GROUP_NAME}
+#
+  SubscriptionFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      FilterName: !Sub ${LogGroup}-sbf
+      LogGroupName: !Ref LogGroup
+      DestinationArn: !Ref DestinationArn
+      FilterPattern: ""
+      RoleArn: !GetAtt SubscriptionFilterRole.Arn
+  
+  SubscriptionFilterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: logs.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AllowSubscriptionFilterDestination
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                  - firehose:PutRecord
+                  - firehose:PutRecords
+                Resource: !Ref DestinationArn
+
+
+# 
+# メトリクスを CloudWatch にパブリッシュする
+# https://docs.aws.amazon.com/ja_jp/AmazonCloudWatch/latest/monitoring/PublishMetrics.html
+# 
+# 
