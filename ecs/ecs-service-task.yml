@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ---
+Parameters: 
+  SysName:
+    Description: System name
+    Type: String
+  EnvName:
+    Description: Env name
+    Type: String
+  AlbSecurityGroupIds:
+    Description: System name
+    Type: CommaDelimitedList
+  AlbSubnetIds:
+    Description: System name
+    Type: CommaDelimitedList
+  SecurityGroupIds:
+    Description: System name
+    Type: CommaDelimitedList
+  SubnetIds:
+    Description: Env name
+    Type: CommaDelimitedList
+  VpcId:
+    Description: Env name
+    Type: AWS::EC2::VPC::Id
+
+Resources:
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      Name: alb
+      Scheme: internal
+      SecurityGroups: !Ref AlbSecurityGroupIds
+      Subnets: !Ref AlbSubnetIds
+      Type: application
+
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref Alb
+      Port: 80
+      Protocol: HTTP
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /health
+      HealthCheckPort: 8080
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 5
+      IpAddressType: ipv4
+      Matcher:
+        HttpCode: 200
+      Name: ecs-test-tg
+      Port: 8080
+      Protocol: HTTP
+      ProtocolVersion: HTTP1
+      TargetType: ip
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref VpcId
+  
+  EcsLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Sub "/ecs/logs/ecs-test-log"
+      RetentionInDays: 7
+
+  EcsTaskDef:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+        - Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${SysName}-${EnvName}-images:latest"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: "/ecs/logs/ecs-test-log"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: "ecs-test-log"
+          Name: ecs-test-task
+          PortMappings:
+            - ContainerPort: 8080
+              HostPort: 8080
+          Environment:
+            - Name: VERSION
+              Value: !Sub "{{resolve:ssm:/ecs/dev/version}}"
+      Cpu: 256
+      ExecutionRoleArn:
+        Fn::ImportValue:
+          !Sub '${SysName}-${EnvName}-ecs-task-execution-role-arn'
+      Family: ecs-test-task-def
+      Memory: 512
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      TaskRoleArn:
+        Fn::ImportValue: 
+          !Sub '${SysName}-${EnvName}-ecs-task-role-arn'
+
+  EcsService:
+    Type: AWS::ECS::Service
+    DependsOn: Alb
+    Properties:
+      Cluster:
+        Fn::ImportValue:
+          !Sub '${SysName}-${EnvName}-ecs-cluster-arn'
+      DesiredCount: 1
+      EnableExecuteCommand: true
+      LoadBalancers:
+        - ContainerName: ecs-test-task
+          ContainerPort: 8080
+          TargetGroupArn: !Ref TargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          SecurityGroups: !Ref SecurityGroupIds
+          Subnets: !Ref SubnetIds
+      ServiceName: ecs-test-service
+      TaskDefinition: !Ref EcsTaskDef

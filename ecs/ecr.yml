@@ -1,0 +1,25 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ---
+
+Parameters: 
+  SysName:
+    Description: System name
+    Type: String
+  EnvName:
+    Description: Env name
+    Type: String
+
+Resources:
+  ECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      EmptyOnDelete: true
+      ImageTagMutability: MUTABLE
+      RepositoryName: !Sub '${SysName}-${EnvName}-images'
+
+Outputs:
+  ContainerRepositoryUri:
+    Description: ECR repository uri
+    Value: !GetAtt ECR.RepositoryUri
+    Export:
+      Name: !Sub '${SysName}-${EnvName}-ecr-uri'

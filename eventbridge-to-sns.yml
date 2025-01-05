@@ -8,6 +8,28 @@ Resources:
     Properties:
       TopicName: MyNotificationTopic
 
+  SnsStateMachine:
+    Type: "AWS::StepFunctions::StateMachine"
+    Properties:
+      StateMachineName: SnsStateMachine
+      DefinitionString: !Sub |-
+            {
+              "StartAt": "PublishSns",
+              "States": {
+                "PublishSns": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::sns:publish",
+                  "Parameters": {
+                    "TopicArn": "${MySNSTopic}",
+                    "Message.$": "$.message",
+                    "Subject.$": "$.subject"
+                  },
+                  "End": true
+                }
+              }
+            }
+      RoleArn: !GetAtt PublishRole.Arn
+
   # EventBridge Rule
   MyEventBridgeRule:
     Type: AWS::Events::Rule
@@ -19,21 +41,31 @@ Resources:
           "source": ["aws.cloudwatch"],
           "detail-type": ["CloudWatch Alarm State Change"],
           "detail": {
-            "$or": [{
-              "alarmName": [{
-                "prefix": "dev-test-"
-              }]
-            }, {
-              "alarmName": [{
-                "prefix": "stg-test-"
-              }]
-            }]
+            "alarmName": [
+              {"prefix": "dev-test-"},
+              {"prefix": "stg-test-"}
+            ],
+            "state": {
+              "value": ["ALARM"]
+            }
           }
         }
       State: ENABLED
       Targets:
-        - Arn: !Ref MySNSTopic
-          Id: "SNSTarget"
+        - Arn: !Ref SnsStateMachine
+          Id: step-function
+          RoleArn: !GetAtt StateMachineExecuteRole.Arn
+          InputTransformer:
+            InputPathsMap:
+              "Account": "$.account"
+              "AlarmName": "$.detail.alarmName"
+              "Reason": "$.detail.state.reason"
+              "State": "$.detail.state.value"
+            InputTemplate: |
+              {
+                "subject": "<State>: <AlarmName>",
+                "message": "AWSアカウントID: \"<Account>\" \n発生アラーム名: \"<AlarmName>\" \n理由: \"<Reason>\""
+              }
 
   # action policy of sns
   TopicInlinePolicy:
@@ -65,3 +97,47 @@ Resources:
             Action: sns:Publish
             Resource: !Ref MySNSTopic
       TopicArn: !Ref MySNSTopic
+
+  PublishRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: sns-publish-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - states.amazonaws.com
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: SnsPublish
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Resource:
+                  - !Ref MySNSTopic
+                Action:
+                  - sns:Publish
+
+  StateMachineExecuteRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: state-machine-execution-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: StateMachineExecution
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Resource:
+                  - !Ref SnsStateMachine
+                Action:
+                  - states:StartExecution

@@ -1,0 +1,52 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ---
+Parameters: 
+  SysName:
+    Description: System name
+    Type: String
+  EnvName:
+    Description: Env name
+    Type: String
+
+Resources: 
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      RoleName: ecs-dev-task-execution-role
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      RoleName: ecs-dev-task-role
+
+Outputs:
+  TaskRoleArn:
+    Description: ECS task role arn
+    Value: !GetAtt TaskRole.Arn
+    Export:
+      Name: !Sub '${SysName}-${EnvName}-ecs-task-role-arn'
+  TaskExecutionRoleArn:
+    Description: ECS task execution role arn
+    Value: !GetAtt TaskExecutionRole.Arn
+    Export:
+      Name: !Sub '${SysName}-${EnvName}-ecs-task-execution-role-arn'

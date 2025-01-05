@@ -1,0 +1,27 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ---
+Parameters: 
+  SysName:
+    Description: System name
+    Type: String
+  EnvName:
+    Description: Env name
+    Type: String
+
+Resources: 
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      CapacityProviders:
+        - FARGATE
+      ClusterName: ecs-dev-cluster
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Weight: 1
+
+Outputs:
+  EcsClusterArn:
+    Description: ECS cluster arn
+    Value: !GetAtt EcsCluster.Arn
+    Export:
+      Name: !Sub '${SysName}-${EnvName}-ecs-cluster-arn'

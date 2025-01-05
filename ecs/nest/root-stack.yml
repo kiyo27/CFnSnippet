@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ---
+
+Parameters: 
+  SysName:
+    Type: String
+    Description: System name
+  EnvName:
+    Type: String
+    Description: prd, reg, stg, dev, ...
+
+  # Network
+  VpcIdMain:
+    Description: VPC ID for ECS
+    Type: AWS::EC2::VPC::Id
+
+  # ALB
+  SecurityGroupAlbApi:
+    Type: String
+    Description: SecurityGroup for ALB API
+  SubnetIdsForAlb:
+    Description: Subnet IDs for ALB(Comma delimited list)
+    Type: String
+
+  # ECS
+  SecurityGroupIdsOfEcsApi:
+    Description: SecurityGroup IDs of ECS API(Comma delimited list)
+    Type: String
+  SubnetIdsForEcsApi:
+    Description: Subnet IDs for ECS(Comma delimited list)
+    Type: String
+  EcsCpuApi:
+    Type: Number
+    Description: CPU for ECS API
+    Default: 512
+  EcsMemoryApi:
+    Type: Number
+    Description: Memory size for ECS API
+    Default: 256
+  EcsDesiredCountApi:
+    Type: Number
+    Description: Task disired count of ECS
+    Default: 1
+  EcsPortApi:
+    Type: Number
+    Description: ECS port of ECS
+    Default: 8080
+
+  TemplateUrl:
+    Type: String
+    Description: ECS port of ECS
+
+Resources: 
+  RootStack:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      TemplateURL: !Ref ${TemplateUrl}
+      Parameters:
+        SysName: !Ref SysName
+        EnvName: !Ref EnvName
+        VpcIdMain: !Ref VpcIdMain
+        SecurityGroupAlbApi: !Ref SecurityGroupAlbApi
+        SubnetIdsForAlb: !Ref SubnetIdsForAlb
+        SecurityGroupIdsOfEcsApi: !Ref SecurityGroupIdsOfEcsApi
+        SubnetIdsForEcsApi: !Ref SubnetIdsForEcsApi
+        EcsCpuApi: !Ref EcsCpuApi
+        EcsMemoryApi: !Ref EcsMemoryApi
+        EcsDesiredCountApi: !Ref EcsDesiredCountApi
+        EcsPortApi: !Ref EcsPortApi
