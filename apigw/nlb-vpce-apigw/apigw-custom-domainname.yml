@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CloudFormation template
+Transform: 'AWS::LanguageExtensions'
+
+Parameters:
+  DomainName:
+    Description: domain name you want to use.
+    Type: String
+  CertificateArn:
+    Description: certificate arn
+    Type: String
+  VpcEndpointId:
+    Description: API GatewayVPC Endpoint Id
+    Type: String
+  RestApiId:
+    Description: API Gateway REST API ID
+    Type: String
+
+Resources:
+  CustomDomainName:
+    Type: AWS::ApiGateway::DomainNameV2
+    Properties:
+      CertificateArn: !Ref CertificateArn
+      DomainName: !Ref DomainName
+      EndpointConfiguration: 
+        Types:
+          - PRIVATE
+      Policy:
+        Fn::ToJsonString:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Deny
+              Principal: "*"
+              Action: execute-api:Invoke
+              Resource:
+                - "execute-api:/*"
+              Condition:
+                StringNotEquals:
+                  aws:SourceVpce: !Ref VpcEndpointId
+            - Effect: Allow
+              Principal: "*"
+              Action: execute-api:Invoke
+              Resource:
+                - "execute-api:/*"
+
+  DomainNameAssociation:
+      Type: AWS::ApiGateway::DomainNameAccessAssociation
+      Properties:
+        AccessAssociationSource: !Ref VpcEndpointId
+        AccessAssociationSourceType: VPCE
+        DomainNameArn: !Ref CustomDomainName
+
+  ApiPathMapping:
+    Type: AWS::ApiGateway::BasePathMappingV2
+    Properties:
+      DomainNameArn: !Ref CustomDomainName
+      RestApiId: !Ref RestApiId
+      Stage: api

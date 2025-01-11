@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CloudFormation template
+
+############################################
+#
+## deploy stack
+#
+# 
+# $ BUCKET_NAME=<your-s3-bucket-name>
+# $ TEMPLATE_NAME=apigw-vpce-alb-nlb.yaml
+# $ STATCK_NAME=dev-poc-apigw-ip-static
+# $ PARAMETER_FILE=apigw-vpce-nlb.json
+# $ aws s3 cp s3://${BUCKET_NAME}/${TEMPLATE_NAME} .
+# $ aws s3 cp s3://${BUCKET_NAME}/parameters/${PARAMETER_FILE} .
+
+# $ aws cloudformation deploy \
+#     --template-file ${TEMPLATE_NAME} \
+#     --stack-name ${STATCK_NAME} \
+#     --parameter-overrides file://${PARAMETER_FILE}
+
+# $ aws cloudformation deploy \
+#   --template-file apigw-vpce-alb-nlb.yaml \
+#   --stack-name dev-poc-apigw-ip-static \
+#   --parameter-overrides file://apigw-vpce-nlb.json
+# 
+############################################
+
+Parameters:
+  SysName:
+    Description: System name
+    Type: String
+  EnvName:
+    Description: Env name
+    Type: String
+  VpcId:
+    Description: VPC ID
+    Type: String
+  VpcEndpointIp1:
+    Description: IP address assigned to the network interface
+    Type: String
+  VpcEndpointIp2:
+    Description: IP address assigned to the network interface
+    Type: String
+  SecurityGroupsForAlb:
+    Description: Security groups for ALB
+    Type: String
+  SubnetIdsForAlb:
+    Description: Subnets for ALB
+    Type: String
+  SecurityGroupsForNlb:
+    Description: Security groups for NLB
+    Type: String
+  NlbSubnetId1:
+    Description: Subnet ID
+    Type: String
+  NlbStaticIp1:
+    Description: Private IP address you want to fix
+    Type: String
+  NlbSubnetId2:
+    Description: Subnet ID
+    Type: String
+  NlbStaticIp2:
+    Description: Private IP address you want to fix
+    Type: String
+
+
+Resources:
+
+# 
+# Create target group
+# https://docs.aws.amazon.com/ja_jp/AWSCloudFormation/latest/UserGuide/aws-resource-elasticloadbalancingv2-targetgroup.html
+# 
+# https://docs.aws.amazon.com/cli/latest/reference/elbv2/describe-target-groups.html
+# aws elbv2 describe-target-groups --target-group-arns xxx
+# 
+
+  TargetGroupForAlb:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${SysName}-${EnvName}-tg-for-alb
+      Port: 443
+      Protocol: HTTPS
+      TargetType: ip
+      VpcId: !Ref VpcId
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTPS
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Targets:
+        - Id: !Ref VpcEndpointIp1
+          Port: 443
+        - Id: !Ref VpcEndpointIp2
+          Port: 443
+      Matcher:
+        HttpCode: 403
+      Tags:
+        - Key: Name
+          Value: !Sub ${SysName}-${EnvName}
+
+  TargetGroupForNlb:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${SysName}-${EnvName}-tg-for-nlb
+      Port: 80
+      Protocol: TCP
+      TargetType: alb
+      VpcId: !Ref VpcId
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Targets:
+        - Id: !Ref ApplicationLoadBalancer
+          Port: 80
+      Matcher:
+        HttpCode: 403
+      Tags:
+        - Key: Name
+          Value: !Sub ${SysName}-${EnvName}
+
+# 
+# Create Application Load Balancer and Listener
+# 
+# https://docs.aws.amazon.com/ja_jp/AWSCloudFormation/latest/UserGuide/aws-resource-elasticloadbalancingv2-loadbalancer.html
+# 
+# aws elbv2 describe-load-balancers --load-balancer-arns xxx
+# https://docs.aws.amazon.com/cli/latest/reference/elbv2/describe-load-balancers.html
+# 
+# 
+# https://docs.aws.amazon.com/ja_jp/AWSCloudFormation/latest/UserGuide/aws-resource-elasticloadbalancingv2-listener.html
+# 
+# aws elbv2 describe-listeners --listener-arn xxx
+# https://docs.aws.amazon.com/cli/latest/reference/elbv2/describe-listeners.html
+#
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${SysName}-${EnvName}-alb-for-vpce
+      Scheme: internal
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '60'
+      SecurityGroups: !Split [",", !Ref SecurityGroupsForAlb]
+      Subnets: !Split [",", !Ref SubnetIdsForAlb]
+      Type: application
+      Tags:
+        - Key: Name
+          Value: !Sub ${SysName}-${EnvName}
+
+  AlbHttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupForAlb
+
+# Create NLB
+  NetworkLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${SysName}-${EnvName}-nlb-for-alb
+      Scheme: internal
+      Type: network
+      SecurityGroups: !Split [",", !Ref SecurityGroupsForNlb]
+      # Subnets: !Split [",", !Ref SubnetIdsForNlb]
+      LoadBalancerAttributes:
+        - Key: load_balancing.cross_zone.enabled
+          Value: true
+      SubnetMappings:
+        - PrivateIPv4Address: !Ref NlbStaticIp1
+          SubnetId: !Ref NlbSubnetId1
+        - PrivateIPv4Address: !Ref NlbStaticIp2
+          SubnetId: !Ref NlbSubnetId2
+      Tags:
+        - Key: Name
+          Value: !Sub ${SysName}-${EnvName}
+
+  NlbTcpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref NetworkLoadBalancer
+      Port: 80
+      Protocol: TCP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupForNlb

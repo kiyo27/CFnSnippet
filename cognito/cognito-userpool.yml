@@ -1,0 +1,23 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ---
+
+Resources: 
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      AccountRecoverySetting: 
+        RecoveryMechanisms:
+          - Name: admin_only
+            Priority: 1
+      AdminCreateUserConfig: 
+        AllowAdminCreateUserOnly: true
+      EmailConfiguration: 
+        EmailSendingAccount: COGNITO_DEFAULT
+      UsernameConfiguration: 
+        CaseSensitive: false
+      UserPoolName: dev-userpool
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref CognitoUserPool

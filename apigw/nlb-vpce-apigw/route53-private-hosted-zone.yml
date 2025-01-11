@@ -1,0 +1,31 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ---
+
+Parameters:
+  IpAddresses:
+    Type: CommaDelimitedList
+    Description: private ip addresses to set record set.
+  DomainName:
+    Type: String
+    Description: Domain name including a trailing dot.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC id.
+
+Resources:
+  PrivateHostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: !Ref DomainName
+      VPCs: 
+        - VPCId: !Ref VpcId
+          VPCRegion: !Sub ${AWS::Region}
+
+  DomainRecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref PrivateHostedZone
+      Name: !Ref DomainName
+      ResourceRecords: !Ref IpAddresses
+      Type: A
+      TTL: "300"

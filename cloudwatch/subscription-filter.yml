@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ---
+
+Resources: 
+  # S3バケット（出力先）
+  DestinationBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'cfn-${AWS::StackName}-destination-bucket'
+      VersioningConfiguration:
+        Status: Enabled
+
+  # Firehoseの実行ロール
+  FirehoseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: firehose.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: FirehosePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:GetBucketLocation
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                  - s3:PutObject
+                Resource:
+                  - !GetAtt DestinationBucket.Arn
+                  - !Sub '${DestinationBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  # Kinesis Data Firehose
+  DeliveryStream:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      DeliveryStreamName: !Sub 'cfn-${AWS::StackName}-delivery-stream'
+      DeliveryStreamType: DirectPut
+      ExtendedS3DestinationConfiguration:
+        CustomTimeZone: Asia/Tokyo
+        BucketARN: !GetAtt DestinationBucket.Arn
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 5
+        CompressionFormat: UNCOMPRESSED
+        Prefix: 'raw-data/'
+        ErrorOutputPrefix: ''
+        RoleARN: !GetAtt FirehoseRole.Arn
+        CloudWatchLoggingOptions:
+          Enabled: true
+          LogGroupName: !Ref FirehoseLogGroup
+          LogStreamName: 'S3Delivery'
+
+  # CloudWatch Logsグループ
+  FirehoseLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/firehose/cfn-${AWS::StackName}'
+      RetentionInDays: 7
+
+  # Subscription Filterのロール
+  SubscriptionFilterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: logs.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: SubscriptionFilterPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - firehose:PutRecord
+                  - firehose:PutRecordBatch
+                Resource: !GetAtt DeliveryStream.Arn
+
+  SubscriptionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/cloudwatch/cfn-${AWS::StackName}'
+      RetentionInDays: 7
+
+  SubscriptionFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      DestinationArn: !GetAtt DeliveryStream.Arn
+      FilterName: !Sub cfn-${AWS::StackName}-filter
+      FilterPattern: ''
+      LogGroupName: !Ref SubscriptionLogGroup
+      RoleArn: !GetAtt SubscriptionFilterRole.Arn

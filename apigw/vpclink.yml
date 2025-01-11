@@ -1,0 +1,67 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ---
+Parameters:
+  SysName:
+    Description: System name
+    Type: String
+    Default: test
+  EnvName:
+    Description: Env name
+    Type: String
+    Default: dev
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SecurityGroups:
+    Type: String
+  SubnetIds:
+    Type: String
+
+Resources: 
+## nlb
+## https://docs.aws.amazon.com/ja_jp/AWSCloudFormation/latest/UserGuide/aws-resource-elasticloadbalancingv2-loadbalancer.html
+  NetworkLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: nlb-cfn
+      Scheme: internal
+      Subnets: !Split [",", !Ref SubnetIds]
+      SecurityGroups: !Split [",", !Ref SecurityGroups]
+      Type: network
+
+## listner
+## aws elbv2 describe-listeners --listener-arns
+  NlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref NlbTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref NetworkLoadBalancer
+      Port: 80
+      Protocol: TCP
+
+## target group
+## aws elbv2 describe-target-groups
+  NlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: target-group-cfn
+      Port: 80
+      Protocol: TCP
+      VpcId: !Sub ${VpcId}
+      TargetType: ip
+
+## vpc link
+  RestApiVpcLink:
+    Type: AWS::ApiGateway::VpcLink
+    Properties:
+      Name: vpc-link-rest-cfn
+      TargetArns:
+        - !Ref NetworkLoadBalancer
+
+Outputs:
+  VpcLinkConnectionId:
+    Description: VPC Link connection id
+    Value: !Ref RestApiVpcLink
+    Export:
+      Name: !Sub '${SysName}-${EnvName}-vpclink-conn-id'

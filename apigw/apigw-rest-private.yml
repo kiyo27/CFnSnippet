@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ---
+Parameters: 
+  SysName:
+    Description: System name
+    Type: String
+    Default: test
+  EnvName:
+    Description: Env name
+    Type: String
+    Default: dev
+  VpcEndpointId:
+    Type: String
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+Resources: 
+  RestApiApiGateway:
+    Type: "AWS::ApiGateway::RestApi"
+    Properties:
+      Description: "Your first API with Amazon API Gateway made by CloudFormation. This is a sample API"
+      EndpointConfiguration:
+        Types:
+          - PRIVATE
+        VpcEndpointIds:
+          - !Ref VpcEndpointId
+      DisableExecuteApiEndpoint: false
+      Name: !Sub ${SysName}-${EnvName}-apigw-private
+      Policy:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: execute-api:Invoke
+            Resource: execute-api:/*
+            Condition:
+              StringNotEquals:
+                aws:sourceVpce: !Ref VpcEndpointId
+          - Effect: Allow
+            Principal: '*'
+            Action: execute-api:Invoke
+            Resource: execute-api:/*
+
+Outputs:
+  ApiGatewayId:
+    Description: RestApi ID
+    Value: !Ref RestApiApiGateway
+    Export:
+      Name: !Sub ${SysName}-${EnvName}-apigw-private-id

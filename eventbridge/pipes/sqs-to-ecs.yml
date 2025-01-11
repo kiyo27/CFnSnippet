@@ -1,25 +1,12 @@
-AWSTemplateFormatVersion: '2010-09-09'
-Transform: 'AWS::LanguageExtensions'
-Description: |
-  Create EventBridge Scheduler, Pipe, and so on
+AWSTemplateFormatVersion: 2010-09-09
+Description: ---
+Metadata: 
 
-Parameters:
-  SysName:
-    Type: String
-    Default: test
-    Description: System name
-  EnvName:
-    Type: String
-    Default: dev
-    Description: prd, reg, stg, dev, ...
-
-  # ECS
-  SecurityGroupIdsOfEcsApi:
-    Description: SecurityGroup IDs of ECS(Comma delimited list)
-    Type: String
-  SubnetIdsForEcsApi:
-    Description: Subnet IDs for ECS(Comma delimited list)
-    Type: String
+Parameters: 
+  EcsCommand:
+    Type: CommaDelimitedList
+    Description: ecs container cmd
+    Default: python,--help
 
 Resources:
   # IAM
@@ -91,7 +78,7 @@ Resources:
       ContainerDefinitions:
         - Name: !Sub ${SysName}-${EnvName}-batch
           Essential: true
-          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${SysName}-${EnvName}-images:batch
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${SysName}-${EnvName}-images:version
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -101,7 +88,7 @@ Resources:
       RuntimePlatform:
         OperatingSystemFamily: LINUX
       TaskRoleArn:
-        Fn::ImportValue: 
+        Fn::ImportValue:
           !Sub '${SysName}-${EnvName}-ecs-task-role-arn'
       ExecutionRoleArn:
         Fn::ImportValue:
@@ -168,8 +155,7 @@ Resources:
           Overrides:
             ContainerOverrides:
               - Name: !Sub ${SysName}-${EnvName}-batch
-                Command:
-                  - '/app/app.py'
+                Command: !Ref EcsCommand
                 Environment:
                   - Name: VERSION
                     Value: !Sub '{{resolve:ssm:/ecs/dev/version}}'

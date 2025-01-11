@@ -1,0 +1,59 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ---
+
+Parameters: 
+  SysName:
+    Description: System name
+    Type: String
+    Default: test
+  EnvName:
+    Description: Env name
+    Type: String
+    Default: dev
+
+Resources: 
+  EcsTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+        - Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${SysName}-${EnvName}-images:version"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: "/ecs/logs/ecs-test-log"
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: "ecs-test-log"
+          Name: ecs-sample-task
+          PortMappings:
+            - ContainerPort: 8080
+              HostPort: 8080
+          Environment:
+            - Name: VERSION
+              Value: !Sub "{{resolve:ssm:/ecs/dev/version}}"
+          Command:
+            - python
+            - --help
+      Cpu: 256
+      ExecutionRoleArn:
+        Fn::ImportValue:
+          !Sub '${SysName}-${EnvName}-ecs-task-execution-role-arn'
+      Family: ecs-sample-task-def
+      Memory: 512
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      TaskRoleArn:
+        Fn::ImportValue: 
+          !Sub '${SysName}-${EnvName}-ecs-task-role-arn'
+
+Outputs:
+  TaskDefArn:
+    Description: ECS task definition ARN
+    Value: !Ref EcsTaskDefinition
+    Export:
+      Name: !Sub '${SysName}-${EnvName}-ecs-task-def-arn'
+  ContainerName:
+    Description: ECS task definition ARN
+    Value: ecs-sample-task
+    Export:
+      Name: !Sub '${SysName}-${EnvName}-ecs-container-name'
